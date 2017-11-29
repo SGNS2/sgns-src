@@ -1,1 +1,1 @@
-# sgsn-src
+SGNS2 is an open source stochastic chemical kinetics simulator written in C++. It uses and expands upon the Next Reaction Method to include dynamic compartments, multi-delayed reactions, and several stochastic molecules partitioning schemes which can be applied on a per-molecule-type basis during cell division
