@@ -1,0 +1,824 @@
+\documentclass[10pt]{article}
+
+\usepackage{amsmath}
+%\usepackage[latin1]{inputenc}
+\usepackage[lmargin=3cm, top=2cm, bottom=2cm]{geometry}
+%\renewcommand{\baselinestretch}{1.2}
+
+\bibliographystyle{plain}
+
+\newcommand{\code}[1]{{\tt {#1}}}
+\newcommand{\codeparam}[1]{\textrm{\textit{#1}}}
+\newcommand{\optparam}[1]{\textrm{[\textit{#1}]}}
+\newcommand{\note}[1]{\textbf{Note}: #1}
+
+\newcommand{\programname}{SGNS2}
+\newcommand{\progexe}{sgns2}
+
+\author{Jason Lloyd-Price, Abhishekh Gupta, and Andre S. Ribeiro}
+\title{{\programname} Simulator Manual}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\section{Introduction}
+
+This manual describes the functionality of the {\programname} stochastic simulator. The simulator is based on the Next Reaction Method\cite{Gibson2000} implementation of the Stochastic Simulation Algorithm\cite{Gillespie1977}, with several modifications to efficiently support large-scale simulations in multiple interacting compartments which can be created and destroyed at runtime. The native input syntax is modelled after the syntax from SGN Sim\cite{Ribeiro2007}, though the Systems Biology Markup Language (SBML) can be used to describe the model to be simulated as well.
+
+This document is organized into two sections: a software guide and a reference manual. The guide introduces many of the capabilities of the simulator by example, and contains simulation templates that can be copied and modified to begin using the core features of {\programname} quickly. The reference manual contains an exhaustive list of the functionality provided by the simulator.
+
+\section{Software Guide}
+
+The following constitutes a complete example of a model with one molecular species, two reactions, and two parameters. The simulation will start at time 0 and run until 50 seconds have elapsed, outputting the state of the system every second, as determined by the two first lines. The values of parameters used in the model are set following this. Afterward, we set the initial numbers of molecules of each chemical species. In the last section, the reactions are defined.
+
+\begin{quote}
+\begin{verbatim}
+stop_time 50;
+readout_interval 1;
+
+parameter {
+    equilibrium = 10;
+    decay = 0.5;
+}
+
+population {
+    A = 0;
+}
+
+reaction {
+    --[equilibrium / decay]--> A;
+    A --[decay]--> ;
+}
+\end{verbatim}
+\end{quote}
+
+This is a simple birth-death model. The amount of \code{A} molecules will reach a mean population of \code{equilibrium} after some time. The time it takes to approach this equilibrium is determined by the value of \code{decay}. The syntax and function of each section of this example are described in detail in the following sections. It is assumed that the above text is stored in a file named \code{example.g}, and is referred to as a ``reaction file''.
+
+\subsection{Command Line}
+
+Before explaining the details of the model setup, we first describe how to run the simulator. {\programname} is a command-line utility, so it is invoked from a command terminal. In modern versions of Windows, this is accessible by running (with Windows Key+R) \code{cmd.exe}. In generally, the simulator is invoked with a command of the form:
+
+\begin{quote}
+\code{\progexe\ \optparam{parameters} \codeparam{filename} \optparam{options}}
+\end{quote}
+
+Only the filename part of the command is required to run a simulation, depending on the information contained in the reaction file. To run the above example, the simulator could be invoked with the simplified command, which will run the simulation using the default timing settings given in the reaction file:
+
+\begin{quote}
+\code{\progexe\ example.g}
+\end{quote}
+
+The timespan and sampling rate of the simulation can be set at the command line with the \code{-t} option:
+
+\begin{quote}
+\code{\progexe\ example.g -t120:5}
+\end{quote}
+
+This will override the timing parameters in \code{example.g} and set the stop time to 120 s and the readout interval to 5 s. The readout interval is optional and defaults 1.
+
+If the extension of the simulation filename is either \code{xml} or \code{sbml}, {\programname} will interpret the file as an SBML model. To read these files, {\programname} requires additional program modules, which can be downloaded from the same page as the {\programname} executables.
+
+A complete list of command line options is available in section \ref{sec:cmdline}.
+
+\subsection{Output}
+
+After running the above command line, the simulator will output a spreadsheet in comma-separated value format, with the extension of the reaction file replaced with \code{.csv}, in this case \code{example.csv}. The output file will have one header row and one simulation sample per row thereafter. The time of each sample is given in the first column. The molecule counts of all molecules in the simulation (in this example, \code{A}) are output in the subsequent columns. The order of the columns is determined by the order in which the molecule species is specified in the input file.
+
+The output format can be changed with the \code{-f} command line option. For example, to output a tab-separated spreadsheet, the following command line can be used:
+
+\begin{quote}
+\code{\progexe\ example.g -ftsv}
+\end{quote}
+
+\textbf{Important note concerning Microsoft Excel:} When importing \code{.csv} files in Excel, the machine's locale is taken into account. In non-English locales, the commas may be interpreted as decimal separators rather than field separators, leading to incorrect time series loaded into Excel. There are several solutions to overcome this. First, the file can be imported with comma explicitly set as the field separator. Alternatively, the \code{tsv} output format may be used instead of \code{csv}. Lastly, comma can be set as the list separator in the system locale settings, though this may have unintended side-effects.
+
+\subsection{Parameters}
+
+Now that the simulator can be run and the output interpreted, let us turn to configuring the model to be simulated. It is often necessary to run the simulation with different parameter sets. The \code{parameter} block in the reaction file defines the default values of the simulation parameters that can be used wherever numbers are expected in the rest of the input (e.g. reaction stochastic constants, reactant function parameters, times, delays, etc...). The example model contains two parameters: \code{equilibrium} and \code{decay}. The parameter values to be used in a particular run can be set on the command line using \code{+}, such as:
+
+\begin{quote}
+\code{\progexe\ +equilibrium=20 example.g}
+\end{quote}
+
+In this case, the parameter \code{equilibrium} is set to 20 rather than the default value of 10 given in \code{example.g}. The value of \code{decay} will remain at the default value of 0.5. Since many different parameter sets can be run from the command line, the \code{-o} option can be used to change the output filename. Instead of outputting the simulation to \code{example.csv}, the following command will direct the output to \code{example\_eq20.csv}:
+
+\begin{quote}
+\code{\progexe\ +equilibrium=20 example.g -o example\_eq20.csv}
+\end{quote}
+
+Note that the parameters are given \emph{before} the reaction file in the command line, whereas options (such as \code{-t} and \code{-o}) appear \emph{afterward}. This is because {\programname} interprets the command line in the order it is given. Parameter values must be set before reading the reaction file and therefore appear before it. Timing and output options must override the values set in the reaction file, and therefore appear after it.
+
+\subsection{Initial Populations}
+
+The initial conditions of the model - the initial numbers of all molecules in the system - are given in the \code{population} block. The names of the molecule species given here must follow C naming conventions. That is, they must begin with a letter or underscore, followed by letters, underscores or digits. The number of molecules given can be a number, or can be a parameter from the \code{parameter} block. The use of a parameter here allows the initial population of a molecule species to be changed from the command line.
+
+Though {\programname} supports the introduction of molecules in the \code{reaction} block, it is recommended that all molecules be introduced in a \code{population} block. This is because the order of the molecules in the output files is determined by the order in which they appear first in the input.
+
+\subsection{Reactions}
+
+Once the initial populations have been defined, the reactions that drive the dynamics of the system must be defined. This is done in a \code{reaction} block. Bimolecular reactions are defined in a form similar to the following:
+
+\begin{quote}
+\code{A + B --[c]--> D;}
+\end{quote}
+
+This describes a reaction between a molecule of species A and a molecule of species B, which forms a molecule of species D. This reaction will occur with a propensity of $c[A][B]$, where $[x]$ is the current population of molecule $x$. $c$ can be a number, a parameter given in the parameter block, or a mathematical formula following the Lua naming . When this reaction occurs, the molecules of A and B will be consumed and two molecules of C will be produced.
+
+Unimolecular reactions are represented similarly:
+
+\begin{quote}
+\code{A --[c]--> B;}
+\end{quote}
+
+This reaction will have a propensity of $c[A]$ and will consume one A molecule and produce one B molecule. Zero-order reactions (source reactions), and decay reactions can be given by omitting the reactant list or the product list, respectively, as shown in \code{example.g}.
+
+Special consideration must be given to the case when the stoichiometry of one species is two or greater. As in the following reactions:
+
+\begin{quote}
+\begin{enumerate}
+\item \code{A + A --[c]--> B;}
+\item \code{2A --[c]--> B;}
+\end{enumerate}
+\end{quote}
+
+In order to provide flexibility in modeling different propensity functions, {\programname} does not rearrange reaction 1 into reaction 2. As shown in section \ref{sec:reactfunc}, the propensity of reaction 1 will be $c[A]^2$, which is incorrect since it implies that a molecule of A can bind to itself. The correct propensity function is $c[A]([A]-1)/2$, which is obtained with reaction 2. See section \ref{sec:reactfunc} for details on this and how to further modify the propensity functions.
+
+\subsection{Delayed Reactions and the Wait List}
+\label{sec:ex-waitlist}
+
+An additional feature of {\programname}, beyond simulating simple reactions, is the ability to delay the release of the products of a reaction until a certain amount of time has passed since the reaction initiated. These time-delayed products are specified in the following form:
+
+\begin{quote}
+\code{A --[c]--> B($tau$);}
+\end{quote}
+
+Here, $tau$ can be a parameter or a number. The release of the B molecule will then be delayed by exactly $tau$ seconds after the occurrence of the reaction. These delays can also be made to follow one of several distributions such as Gamma or Exponential. See section \ref{sec:timedelays} for the full list of distributions. All (or none) of the products of a reaction can be delayed by different amounts.
+
+Delayed reactions are implemented by placing the delayed products on a wait list for the duration of time between the reaction occurs and the delayed products are released. This introduces a form of memory into the system, and information about the previous states of the system will be required by the simulator at the beginning of the simulation. That is, the simulator must know what delayed products should be on the wait list at the beginning of the simulation. These products can be specified in a \code{queue} block as follows:
+
+\begin{quote}
+\begin{verbatim}
+queue {
+    A(4.1);
+    A(6.8);
+    100A(20);
+}
+\end{verbatim}
+\end{quote}
+
+In this case, A molecules will be introduced into the simulation at $t = 4.1$ and $t = 6.8$, and 100 A molecules will be introduced at $t = 20$. If the above is added to \code{example.g}, a large jump in the number of A's is observed at $t=20$.
+
+Besides containing the history of the simulation, the wait list can be used to introduce molecules at given points in the simulation. For example, this might be used to perturb the system at a specific point in time to simulate changing environmental conditions. Negative molecule counts are also possible to include in the wait list, though these must be specified using the Lua notation (see section \ref{sec:lua}), as in:
+
+\begin{quote}
+\begin{verbatim}
+queue [-5]A(70);
+\end{verbatim}
+\end{quote}
+
+This can be used, for example, to completely determine the amount of a particular molecular species at all times in the simulation. However, the simulation's output is undefined if any molecule count becomes negative.
+
+\subsection{Compartments}
+\label{sec:ex-compartments}
+
+Compartments represent the separation of subsets of molecules in the system. The separation can be spatial (e.g. the molecules are separated by a membrane), or chemical (e.g. the molecules are part of a larger molecule that interacts with the rest of the system as a unit). Just as the Stochastic Simulation Algorithm assumes that the distribution of molecules in the reaction volume is uniform (i.e. the molecules are well-mixed), {\programname} assumes that the compartments themselves are uniformly distributed in their containing volume.
+
+The following shows and example of compartments in use: 
+
+\begin{quote}
+\begin{verbatim}
+stop_time 50;
+readout_interval 1;
+
+compartment {
+    type P;
+    P p1;
+    P p2;
+}
+
+population {
+    A = 0;
+    A@p1 = 5;
+    A@p2 = 10;
+}
+
+reaction {
+    A@P --[0.05]--> A;
+}
+\end{verbatim}
+\end{quote}
+
+Supposing this model is in \code{example.g}, this simulation will produce three output files:\linebreak[4]\code{example.csv}, \code{example@P-1.csv} and \code{example@P-2.csv}. These files contain the time series of \code{A} in the environment compartment (\code{example.csv}), and in the two \code{P} compartments. Opening the output files will reveal that A is slowly being drained from the P compartments, which start with 5 and 10 A molecules, respectively. The A molecules move to the environment compartment (there will be 15 A molecules in the environment by the end of the simulation). The sole reaction in the system is responsible for this movement.
+
+Numerous compartment types can be created within a single simulation. Further, compartment types can be nested within other compartment types to form a compartment hierarchy. For example, a model of multiple cells, each containing a nucleus and multiple mitochondria might use the following compartment types:
+
+\begin{quote}
+\begin{verbatim}
+compartment {
+    type Cell;
+    type Nucleus@Cell;
+    type Mito@Cell;
+}
+\end{verbatim}
+\end{quote}
+
+When writing reactions or setting initial populations in reactions, the compartment type in which the molecule should be taken/released is given after an \code{@} sign after the molecule name. As in the above example, inter-compartment reactions are possible, however reactions between compartments that are not directly above or below one another in the hierarchy are unsupported. Thus, the following reactions are valid:
+
+\begin{quote}
+\begin{verbatim}
+reaction {
+    RNAp@Cell --[.01]--> RNAp@Nucleus;
+    ATP@Mito --[.05]--> ATP@Cell;
+    ATP@Cell --[.05]--> ATP@Nucleus;
+}
+\end{verbatim}
+\end{quote}
+
+However the following reaction is not:
+
+\begin{quote}
+\begin{verbatim}
+reaction ATP@Mito --[.001]--> ATP@Nucleus;
+\end{verbatim}
+\end{quote}
+
+New compartments can be created during the simulation by reactions with compartment types directly in the product list. Using the above example of a cell, a cell division reaction might then resemble the following:
+
+\begin{quote}
+\begin{verbatim}
+reaction split:ATP@Cell --[.0004]--> @Cell + :ATP@Cell;
+\end{verbatim}
+\end{quote}
+
+When this reaction occurs, the ATP in the original cell will be binomially partitioned into a newly-created Cell compartment (note the \code{:} before the ATP in the product list). This new Cell compartment will initially not contain any other molecules and compartments. It should probably initially contain a Nucleus compartment as well, accomplished by the following reaction:
+
+\begin{quote}
+\begin{verbatim}
+reaction split:ATP@Cell --[.0004]--> @Cell + @Nucleus + :ATP@Cell;
+\end{verbatim}
+\end{quote}
+
+The product list is processed in-order, so this reaction will create the new Nucleus in the new Cell compartment. If the \code{@Nucleus} were to appear \emph{before} the \code{@Cell}, it would create the Nucleus compartment in the \emph{original} cell instead.
+
+It is likely that many of the molecules in the Cell compartment are going to be split by this reaction. All of these molecules would need to have corresponding \code{split:} reactants and products. It is also likely that some compartments inside the cell (such as the Mito compartments) will also have to be split. This is accomplished with the same notation as population splits:
+
+\begin{quote}
+\begin{verbatim}
+reaction split:ATP@Cell + split:@Mito --[.0004]-->
+         @Cell + @Nucleus + :ATP@Cell + :@Mito;
+\end{verbatim}
+\end{quote}
+
+This will binomially partition the Mito compartments between the old Cell compartment and the new Cell compartment.
+
+For a detailed list of the different split types available and the parameters they take, see section \ref{sec:splits}.
+
+Compartments are destroyed when the compartment type appears in the reactant list of the reaction, as in this reaction modelling spontaneous cell death:
+
+\begin{quote}
+\begin{verbatim}
+reaction @Cell --[.0003]--> ;
+\end{verbatim}
+\end{quote}
+
+When a compartment is destroyed, all sub-compartments in that compartment are destroyed with it.
+
+\subsection{Batch Runs}
+
+The simulation is expected to be run many times to obtain a good sample of the distribution of trajectories described by the Chemical Master Equation of a given chemical system. This amounts to running the simulator many times with the same input, but with different random seeds. To simplify the process of running the simulator many different times, the command line option \code{-b} can be used to batch many runs of the simulation in a single run of the simulator as in:
+
+\begin{quote}
+\code{\progexe\ example.g -b100}
+\end{quote}
+
+In this example, 100 simulations will be run. Each run is output to a different set of files by inserting the batch number before the file extension.
+
+When running in batch mode, {\programname} will take advantage of multi-core processors to accelerate the parallel simulations.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Reference Manual}
+
+\subsection{SGNS File Format}
+
+The SGNS file format consists of a set of \textit{identifier} and \textit{data} pairs. The \codeparam{identifier} tells {\programname} how to interpret the \codeparam{data}. An exhaustive list of recognized identifiers is given in section \ref{sec:identifiers}. Individual \codeparam{identifier}-\codeparam{data} pairs are given in one of three formats:
+
+\begin{itemize}
+\item[1.] \code{\codeparam{identifier} \codeparam{data};}
+\item[2.] \code{\codeparam{identifier} \{ (\codeparam{data};)* \}}
+\item[3.] \code{\codeparam{identifier} !\{ \codeparam{data} \}!}
+\end{itemize}
+
+The first format is generally used to give simple information, such as the start and stop times of the simulation, or the initial random seed. For example, the following line will set the stop time to 500:
+
+\begin{quote}
+\code{stop\_time 500;}
+\end{quote}
+
+The second format is used to input a block of similar data, and is equivalent to repeating the first form many times. This is often used for the lists of reactions and initial populations of molecules. The following example demonstrates how a set of initial population declarations (see section \ref{sec:population}) for a Toggle Switch system can be condensed into a single block:
+
+\begin{quote}
+\begin{tabular}{p{1.9in}|p{1.9in}}
+Format 1&Format 2\\
+\hline
+\code{population A = 0;\linebreak[4]population B = 0;\linebreak[4]} &
+\code{population \{\linebreak[4]\hspace{0.3in}A = 0;\linebreak[4]\hspace{0.3in}B = 0;\linebreak[4]\}}
+\end{tabular}
+\end{quote}
+
+The third and final format is designed to allow blocks of data which may contain semicolons or braces inside them to be input. This is primarily useful for writing a chunk of Lua code to be run as a single block (see section \ref{sec:lua}).
+
+Unrecognized identifiers and their data are ignored and produce a warning.
+
+Comments can be inserted in any place in the model file following the same format as C++ comments. That is, \code{//} can be used to comment lines, and \code{/*} $\cdots$ \code{*/} pairs can be used to place comments within a line. In Lua blocks, Lua-style comments (both \code{--} and \code{--[[} $\cdots$ \code{]]} forms) are also supported.
+
+\subsection{List of Recognized Identifiers}
+\label{sec:identifiers}
+
+\begin{description}
+\item[\code{compartment}] \codeparam{definition} \\
+	Declares and creates compartments. See section \ref{sec:compartment} for complete syntax.
+\item[\code{batch\_count}] \codeparam{n} \\
+	Sets the number of independent runs to perform to \codeparam{n}. If \codeparam{n} is greater than 1, {\programname} runs in batch mode, and will attempt to run as many in parallel as possible.
+\item[\code{batch\_init}] \codeparam{lua-code} \\
+	Specifies a block of Lua code that is not executed immediately, but is executed immediately before each batch simulation.
+\item[\code{batch\_threads}] \codeparam{n} \\
+	Sets the number of threads to create in batch mode to \codeparam{n}. Setting this less than or equal to zero will cause {\programname} to use the default, which is a best guess of the number of logical cores available.
+\item[\code{import}] \codeparam{format}\code{:}\codeparam{file} \\
+	Parses \codeparam{file} in the format given by \codeparam{format}. If no format is given, the SGNS2 guesses the format of the file from the file's extension. Valid formats are \code{sbml} (extensions \code{sbml} and \code{xml}, see section \ref{sec:sbml}) and \code{sgns} (all other extensions).
+\item[\code{include}] \codeparam{file} \\
+	Parses the SGNS-format \codeparam{file} as though it appeared at this point in the input.
+\item[\code{lua}] \codeparam{lua code} \\
+	Compiles and runs a block of Lua code.
+\item[\code{molecule\_readout}] \codeparam{show/hide} \\
+	Changes the default readout of \emph{newly-introduced} molecular species in the input. For example, to hide all new species introduced in a \code{reaction} block, place \code{molecule\_readout hide} before.
+\item[\code{output}] \codeparam{show/hide} \codeparam{what} \\
+	Toggles the visibility of special columns in the readout. See section \ref{sec:output}.
+\item[\code{output\_file}] \codeparam{filename} \\
+	Sets the output filename. Note that this file is not opened until the first sample is taken from the simulation. A warning is output if the file cannot be opened. Set this to \code{-} to output to stdout.
+\item[\code{output\_file\_header}] \codeparam{text} \\
+	Prepends \codeparam{text} to the top of the Env compartment's output.
+\item[\code{output\_format}] \codeparam{format} \\
+	Changes the output format. See section \ref{sec:output}.
+\item[\code{parameter}] \codeparam{name} \code{=} \codeparam{value} \\
+	Sets \codeparam{name} to \codeparam{value} only if it has not been given before. Placing this in a simulation file allows parameters with default values to be created. They can then be easily set on the command line with \code{+}.
+\item[\code{performance}] \codeparam{on/off} \\
+	Show/hide performance and model information at the end of the simulation. Defaults to \code{hide}.
+\item[\code{population}] \codeparam{definition} \\
+	Sets the initial population of a chemical species in a compartment. See section \ref{sec:population} for complete syntax.
+\item[\code{progress}] \codeparam{on/off} \\
+	Show/hide progress information (time and number of simulation steps) at each sample point. Defaults to \code{hide}.
+\item[\code{queue}] \codeparam{definition} \\
+	Adds a species to the wait list. See section \ref{sec:waitlist} for complete syntax.
+\item[\code{reaction}] \codeparam{definition} \\
+	Adds a reaction. See section \ref{sec:reaction} for complete syntax.
+\item[\code{readout\_interval}] \codeparam{t} \\
+	Sets the interval between sampling points to \codeparam{t}. If \codeparam{t} is less than or equal to zero, {\programname} will output a sample for every step of the simulation.
+\item[\code{seed}] \codeparam{n} \\
+	Sets the seed of the random number generator used by the simulation and by the \code{random} lua functions to \codeparam{n}. Omitting \codeparam{n} will cause {\programname} to seed the generator with a combination of the system clock and the process pid.
+\item[\code{stop\_time}] \codeparam{t} \\
+	Sets the time at which the simulation should cease running to \codeparam{t}.
+\item[\code{time}] \codeparam{t} \\
+	Sets the initial simulation time to \codeparam{t}. If this time is after \code{stop\_time}, the simulator will exit without emitting anything.
+\item[\code{warn}] \codeparam{on/off} \\
+	Enables/disables the display of warnings. Defaults to \code{on}.
+\end{description}
+
+\subsection{Compartments}
+\label{sec:compartment}
+
+The \code{compartment} identifier is used to set up the compartment type hierarchy and to create the compartments present at the start of the simulation. Initially, there is one compartment type defined, \code{Env}, of which there is one instance. If a species is used in a \code{reaction} or \code{population} block which does not explicitly define which compartment type it is from, it is assumed to be \code{Env}. Compartment type creation is done as follows:
+
+\begin{quote}
+\code{compartment type \optparam{\code{\#}}\codeparam{name}\optparam{@\codeparam{parent}};}
+\end{quote}
+
+This will create the named compartment type, which defines compartments created \emph{within} compartments of type \codeparam{parent}. If \codeparam{parent} is not given, it is assumed to be \code{Env}. To remove output from a compartment type, place a \code{\#} before its name.
+
+Compartments are instantiated as follows:
+
+\begin{quote}
+\code{compartment \codeparam{type} \codeparam{name}\optparam{@\codeparam{parent}};}
+\end{quote}
+
+This will create a named compartment of the given type within the specified parent. The parent must itself be a named compartment or, if not given, it is assumed to be \code{Env}. Alternatively, several unnamed compartments of a given type can be created at once with the syntax:
+
+\begin{quote}
+\code{compartment instance \codeparam{type}\optparam{\code{[}n\code{]}}\optparam{@\codeparam{name}};}
+\end{quote}
+
+This will create \codeparam{n} compartments of the given type in \emph{each} compartment of the parent type of \code{P} that are contained in any compartment contained by the compartment with name \codeparam{name}. If \codeparam{name} is not specified, it is assumed to be \code{Env}.
+
+\subsection{Molecular Species and Populations}
+\label{sec:population}
+
+Species names follow the C identifier rules, and are case sensitive. They must begin with a letter or an underscore, followed by a string of letters, numbers or underscores. That is, they must satisfy the regular expression \code{[a-zA-Z\_][a-zA-Z0-9\_]*}.
+
+Species representing complexes of other species can be represented by listing all species' names in the complex, separated by `\code{.}'. For example, the heterodimer of species A and B can be represented as \code{A.B}. This notation is purely cosmetic, and such species are treated by the simulator as completely separate species (i.e. the output column of species A does not include the A molecules in the complex A.B).
+
+The initial populations of species are given by the \code{population} identifier. Populations are usually specified as `\code{\codeparam{speciesname} = \codeparam{population}}'. All possible uses of the \code{population} identifier are illustrated below:
+
+\begin{center}
+\begin{tabular}{l|p{2.4in}}
+Data&Description\\
+\hline
+\hline \code{A = 5}&Set the initial concentration of A in the \code{Env} compartment to 5.\\
+\hline \code{A@C = 6}&Set the initial concentration of A in all compartments of type \code{C} to 6.\\
+\hline \code{A@comp2 = 7}&Set the initial concentration of A in the compartment named \code{comp2} to 7.\\
+\hline \code{A@C@comp2 = 9}&Set the initial concentration of A in all compartments of type \code{C} that are contained in the compartment named \code{comp2} to 9.\\
+\hline \code{A += 3}&Add 3 to the previously declared initial population of A in the \code{Env} compartment.\\
+\hline \code{A -= 2}&Subtract 2 from the previously declared initial population of A in the \code{Env} compartment. No warning is issued for negative populations.\\
+\hline \code{A}&Equivalent to \code{A += 0}.
+\end{tabular}
+\end{center}
+
+If a species name is encountered that has not yet been seen before in the input, its initial concentration is initialized to 0. This applies to species in reactions and the waiting list as well as the \code{+=} and \code{-=} forms of \code{population}.
+
+By default, all species are output in the readout file. This can produce a lot of data that may not be necessary. Readout of species that have not yet appeared in the input can be changed with the \code{molecule\_readout} identifier. Alternatively, readout of a species can be explicitly enabled or disabled by placing a \code{!} or \code{\#} before the species name, respectively. This visibility is set on a per-species basis, so \code{\#A} will remove species A from the output of \emph{all} compartments in which A appears.
+
+Note that the population count given does not need to be a single number, and can consist of Lua code. This allows the initial count to be controlled by a parameter, or to be randomized using the \code{random} table (see section \ref{sec:lua}). Note that the Lua expression is only evaluated once (upon reading the input file), and thus batch runs will \emph{not} have different initial populations, nor will different compartments have different amounts.
+
+\subsection{Reactions}
+\label{sec:reaction}
+
+The general syntax of the \code{reaction} identifier is as follows:
+
+\begin{quote}
+\code{\codeparam{reactant-list} --[\codeparam{c}]--> \codeparam{product-list};}
+\end{quote}
+
+This will create a reaction that occurs with a stochastic constant of \codeparam{c}, which can be a parameter or Lua variable. When the reaction occurs, it will consume the molecular species in \codeparam{reactant-list} and produce the species in \codeparam{product-list}. The reactant list and product list are \code{+}-separated lists of species names, as in:
+
+\begin{quote}
+\code{A + B --[1]--> C + D;}
+\end{quote}
+
+If the reactants or products have a stoichiometry other than one, give the stoichiometry before the species name, as in:
+
+\begin{quote}
+\code{2A --[1]--> A.A;}
+\end{quote}
+
+The stoichiometry can be 0. In this case, the reactant is said to be a `virtual reactant', which can also be denoted with a \code{*}. These reactants factor into the propensity of the reaction, but not molecules are consumed when the reaction occurs. More information about the propensity calculation can be found in section \ref{sec:reactfunc}. To use a parameter or Lua expression as the stoichiometry use the following syntax:
+
+\begin{quote}
+\code{[\codeparam{parameter}]A --[1]--> [\codeparam{parameter2}]B;}
+\end{quote}
+
+All reactions in {\programname} are unidirectional. To add bidirectional reactions, add the reverse direction as a separate reaction. Additionally, both the reactant list and the product list can be empty, giving source or sink reactions, respectively.
+
+\subsubsection{Reactions in Compartments}
+\label{sec:rxn-compartments}
+
+Reactions can be defined as occurring in specific compartments by specifying the compartment type in which each molecular species should be taken from, as in:
+
+\begin{quote}
+\code{A@P + B@P --[1]--> C@P + D@P;}
+\end{quote}
+
+This reaction `occurs' in each compartment of type \code{P}, and therefore each instance of a \code{P} compartment will have a copy of this reaction in it. The same model running in independent compartments will then behave similarly. This gets more complicated when reactions that cover more than one compartment as in:
+
+\begin{quote}
+\code{A@P + B@Q --[1]--> C@P + D@Q;}
+\end{quote}
+
+If \code{Q} is a sub-compartment of \code{P}, then this reaction specifies that an \code{A} molecule in a \code{P} compartment reacts with a \code{B} molecule in one of the \code{Q} compartments that are contained in that \code{P} compartment, producing a \code{C} molecule in the \code{P} compartment, and a \code{D} molecule in the same compartment that the \code{B} molecule was taken from. This reaction `occurs' in the \code{Q} compartment, and has a propensity that as though there is a separate copy of the reaction for every \code{Q} compartment in the \code{P} compartment. For example, the following reaction will have a propensity proportional to the number of \code{Q} compartments and the number of \code{A} molecules in the \code{P} compartment:
+
+\begin{quote}
+\code{A@P --[1]--> B@Q;}
+\end{quote}
+
+When this reaction occurs, the \code{B} molecule will appear in a random \code{Q} compartment.
+
+Using these inter-compartment reactions, communication between the compartments and their containing compartments can occur. Reactions that span horizontally across the compartment hierarchy are currently not allowed.
+
+\subsubsection{Time Delays}
+\label{sec:timedelays}
+
+{\programname} supports reactions with multiple time-delayed products, intended to be used to model reactions which take a non-negligible time to occur. Time delays are specified by adding a delay specification to the product in the following form:
+
+\begin{quote}
+\code{$\cdots$ --[\codeparam{c}]--> \codeparam{name}(\optparam{distribution\code{:}} \codeparam{parameters}) + $\cdots$;}
+\end{quote}
+
+Here, \codeparam{distribution} is the name of the distribution that the delay will follow, and \codeparam{parameters} is a comma-separated list of parameters for that distribution. If \codeparam{distribution} is omitted, it will default to \code{delta}.
+
+Available distributions include:
+
+\begin{center}
+\begin{tabular}{p{1in}|l|p{3.4in}}
+Name & Parameters & Description\\
+\hline \hline \code{delta}, \code{const} & $\tau$ & A constant delay of $\tau$ \\
+\hline \code{uniform} & $min$, $max$ & A uniform distribution between $min$ and $max$ \\
+\hline \code{trunc.gaussian} & $\mu$, $\sigma$ & A normal distribution with mean $\mu$ and standard deviation $\sigma$, truncated so that negative numbers produce a delay of 0 \\
+\hline \code{gaussian}, \code{normal} & $\mu$, $\sigma$ & A normal distribution with mean $\mu$ and standard deviation $\sigma$, with the probability mass below 0 redistributed into the rest of the distribution \\
+\hline \code{exponential}, \code{exp} & $\lambda$ & An exponential distribution with a mean of $1/\lambda$ \\
+\hline \code{gamma} & $shape$, $scale$ & A Gamma distribution with the given shape and scale
+\end{tabular}
+\end{center}
+
+All distributions are sampled independently for each firing of a reaction.
+
+To exemplify the above, to add a gamma distributed delay with shape 100 and mean duration of 500 s to the product of a reaction, the following syntax would be used:
+
+\begin{quote}
+\code{$\cdots$ --[\codeparam{c}]--> A(gamma:100, 5) + $\cdots$;}
+\end{quote}
+
+\subsubsection{Reactant Functions}
+\label{sec:reactfunc}
+
+To modify the manner in which the population of each reactant's species functions into the reaction's propensity, {\programname} offers an array of functions which can be applied to each reactant. The propensity $a_\mu$ of reaction $\mu$ is calculated as:
+
+\begin{equation}
+a_\mu = c_\mu\mathop{\prod}_{r\in R_\mu}f_r(X_r)
+\end{equation}
+
+Where $c_\mu$ is the reaction's stochastic constant, $R_\mu$ is the set of reactants of the reaction, and $f_r$ is the reactant's function.
+
+A function can be assigned to a reactant in a syntax similar to assigning a delay distribution to a product. It is specified in the form \code{(\codeparam{function}:\codeparam{parameters})}. Unlike delay distributions, there is no default function if no \code{\codeparam{function}} is given. If a parameter is omitted, it is assumed to be \code{1}. Available functions (where $a$ and $b$ are the parameters, and $X$ is the population of the reactant) are:
+
+\begin{center}
+\begin{tabular}{l|l}
+Name & Function\\
+\hline
+\hline \code{gilh} & $\mathop{\prod}_{j=1}^{a} \frac{X-j+1}{j}$ \\
+\hline \code{const} & $a$ \\
+\hline \code{linear} & $aX$ \\
+\hline \code{square}, \code{sqr} & $aX^2$ \\
+\hline \code{cube} & $aX^3$ \\
+\hline \code{pow} & $bX^a$ \\
+%\hline \code{poly} & $a + bX + cX^2 + dX^3$ \\
+\hline \code{hill} & $\frac{X^b}{a^b + X^b}$ \\
+\hline \code{invhill} & $\frac{a^b}{a^b + X^b}$ \\
+\hline \code{max} & $b\cdot max(a, X)$ \\
+\hline \code{min} & $b\cdot min(a, X)$
+%\hline \code{lua} & \code{\codeparam{Lua Chunk}}
+\end{tabular}
+\end{center}
+
+If no reactant function is given, reactants that consume at least one molecule are assumed to have the \code{gilh} function where $a$ is the stoichiometry of that reactant. Note that \code{gilh} for $a = 0, 1, 2$ corresponds to the calculation of H given on p. 5 of \cite{Gillespie1977}. Split reactants (see section \ref{sec:splits}) have a default function of \code{const}.
+
+Functions of multiple reactant populations are currently not possible in the simulator. This restriction is in place to allow some heavy optimization of inter-compartment reactions.
+
+Note that while the reactant functions greatly expand the capabilities of the simulator, they must also be used with care to ensure that molecule populations do not become negative. In this case, the simulation behaviour is undefined.
+
+To exemplify the above, if the molecules of \code{A} should factor into a reaction with a hill function with a hill coefficient of 2 and a microscopic dissociation constant of 10, the reaction can be written as:
+
+\begin{quote}
+\code{$\cdots$ + A(hill:10, 2) --[\codeparam{c}]--> $\cdots$;}
+\end{quote}
+
+\subsubsection{Dynamic Compartments}
+\label{sec:dyn-compartments}
+
+Reactions are the driving force behind the dynamics of any model in {\programname} by deciding what happens when. As such, they are also responsible for creating and destroying compartments. Compartment creation is accomplished by a reaction of the following form:
+
+\begin{quote}
+\code{$\cdots$ --[\codeparam{c}]--> @P + $\cdots$;}
+\end{quote}
+
+This will create a new compartment of type \code{P} as a sub-compartment of the parent compartment of \code{P} in which this reaction occurs. Products which are \code{@P} which follow the \code{@P} in the product list will release molecules into the new compartment, while such products which appear before it will be released in the \code{P} compartment which the reaction occurred in. Multiple compartments and sub-compartments can then be created and initialized by a single reaction.
+
+Compartment destruction is accomplished by a reaction of the following form:
+
+\begin{quote}
+\code{$\cdots$ + @P --[\codeparam{c}]--> $\cdots$;}
+\end{quote}
+
+When this reaction occurs, it will destroy the \code{P} compartment which it occurs in, and all its sub-compartments. Only one compartment type can be destroyed by a single reaction. The \code{@P} may appear anywhere in the reactant list, and does not affect the reaction's propensity calculation.
+
+\subsubsection{Splits}
+\label{sec:splits}
+
+Population splits are denoted with the following syntax:
+
+\begin{quote}
+\code{$\cdots$ + \codeparam{splittype}\optparam{\code{(}\codeparam{parameters}\code{)}}:\codeparam{species} --[\codeparam{c}]--> \optparam{splitindex}:\codeparam{species} + $\cdots$;}
+\end{quote}
+
+Here, \codeparam{splittype} determines the manner in which the population is split, (e.g. binomial splitting), \codeparam{parameters} is a comma-separated list of parameters specific to the split type (e.g. the binomial \codeparam{p}), and \codeparam{splitindex} tells the product to release the amount of the population taken from the \codeparam{splitindex}'th split in the reactant list. The split parameters will default to a split type-dependent value (see the table below). If \codeparam{splitindex} is omitted, {\programname} will search for the split in the reactant list with the same species as the product.
+
+For example, when the following reaction occurs, it will take roughly half of the \code{A} molecules in the environment and turn them into \code{B} molecules:
+
+\begin{quote}
+\code{split:A --[1]--> 1:B}
+\end{quote}
+
+The available splits and their parameters in {\programname} are:
+
+\begin{center}
+\begin{tabular}{l|l|l}
+Name & Distribution & Defaults \\
+\hline
+\hline \code{split} & $N \sim Binomial(X,p)$ & $p = 0.5$ \\
+\hline \code{split2} & $N \sim Unbiased(Binomial(X,p))$ & $p = 0.5$ \\
+\hline \code{betapart} & $N \sim Binomial(X,Beta(\alpha,\beta)) $ & $\alpha = 1$, $\beta = \alpha$ \\
+\hline \code{betapart2} & $N \sim Unbiased(Binomial(X,Beta(\alpha,\beta)))$ & $\alpha = 1$, $\beta = \alpha$ \\
+\hline \code{take} & $N = \lfloor aX\rfloor$ & $a = 1$ \\
+\hline \code{allornothing} & $N \sim X \times Bernoulli(p)$ & $p = 0.5$ \\
+\hline \code{pairpart} & *$see$ $ below$ & $p = 1$, $r = 1$ \\
+\end{tabular}
+\end{center}
+
+* In pair partitioning, molecules pair up into $\sim Binomial(floor(N/2),r)$ pairs which are evenly split with probability $p$ and end up in the same daughter with probability $(1-p)$. The distribution is $Binomial$ when $p = 0.5$. The molecules that fail to form pairs are independently split with no bias.  
+
+In the above table, the $Unbiased(z)$ function returns either $z$ or $X-z$ with equal probability, ensuring that the partitioning is not biased towards either the source or destination compartment.
+
+It is also possible to split the sub-compartments within a compartment with a similar notation:
+
+\begin{quote}
+\code{$\cdots$ + \codeparam{splittype}\optparam{\code{(}\codeparam{parameters}\code{)}}:@\codeparam{type} --[\codeparam{c}]--> \optparam{splitindex}:@\codeparam{type} + $\cdots$;}
+\end{quote}
+
+This facility is often combined with compartment creation to place the split sub-compartments into the new compartment.
+
+Splitting compartments comes with several other caveats. First, if a compartment split in the reactant list has no corresponding product, then the compartments taken in the split will be destroyed. Second, if a compartment split is connected to a product that is a species, then the number of compartments 'taken' will be used for the number of that species released by that product. Third, {\programname} will select a random subset of $N$ of the sub-compartments to be selected from. Finally, the \code{copy} split type will not actually copy compartments. Instead, it will copy the number of compartments, which can only be released as a population of a species instead.
+
+Similar to virtual reactants, virtual splits may be created by placing an asterisk before the split type. Virtual splits do not modify the population of the molecule in the source compartment. Splits are processed in the order they appear in the reactant list.
+
+\subsection{Wait List}
+\label{sec:waitlist}
+
+The \code{queue} identifier can be used to initialize the simulation with molecules already on the wait list, either to provide history of the simulation, or to mark events of interest during the simulation (e.g. perturbations at specific times). The \code{queue} identifier expects data in the following format:
+
+\begin{quote}
+\code{\optparam{count}\codeparam{species}\optparam{\code{@}type}\optparam{\code{@}name}(\codeparam{time})}
+\end{quote}
+
+{\programname} will then release \codeparam{count} molecules of the given species at the given time in all compartments of type \codeparam{type} contained within the compartment named \codeparam{name}.
+
+In order to use Lua code for the count (e.g. to use a parameter or to randomize the amount of molecules to release using the Lua \code{random} table), place square brackets around it, as in:
+
+\begin{quote}
+\code{[\codeparam{parameter}]\codeparam{species}\optparam{\code{@}type}\optparam{\code{@}name}(\codeparam{time})}
+\end{quote}
+
+\subsection{Lua}
+\label{sec:lua}
+
+Most numeric fields allow for Lua code to be inserted. Lua code encountered where a number is expected is compiled as though ``\code{return }'' was prepended to it. All Lua code is compiled and run immediately when it is encountered, in the order it appears.
+
+A block of generic Lua code can be executed using the \code{lua} identifier. It is recommended that the data block be delimited with \code{!\{} $\cdots$ \code{\}!} so that semicolons and braces can be used inside the code block without having the block split into several chunks and compiled separately.
+
+Parameters specified by the \code{parameter} identifier are placed in the global Lua table, allowing them to be accessed by Lua expression.
+
+A global function ``\code{parse}'' is also provided to feed a string from Lua into the parsing system. The function takes one or two parameters. When two parameters are given, the first is interpreted as a string containing the \code{\codeparam{identifier}}, and the second is the \code{\codeparam{data}}. A single string passed to the function will be parsed as though it was from a file.
+
+Lua's built-in random number generation facilities should not be used. Instead, SGNS2 provides a number of random number generators in the \code{random} table, which is seeded by the \code{seed} identifier. Additional random number generator objects can be created using the global \code{RNG} function. Available distributions are:
+
+\begin{center}
+\begin{tabular}{l|p{4in}}
+Code & Distribution \\
+\hline
+\hline \code{random:bernoulli(p)} & Boolean with probability \code{p} of being \code{true} \\
+
+\hline \code{random:int(a,b)} & Discrete uniform distribution with minimum \code{a} and maximum \code{b} \\
+\hline \code{random:binomial(n,p)} & Binomial distribution with \code{n} trials and probability of success \code{p} \\
+\hline \code{random:nbinomial(r,p)} & Negative binomial distribution with \code{r} failures and probability of success \code{p} \\
+\hline \code{random:geometric(p)} & Geometric distribution with probability of success \code{p} \\
+\hline \code{random:poisson(l)} & Poisson distribution with rate \code{l} \\
+
+\hline \code{random:uniform(a,b)} & Discrete uniform distribution with minimum \code{a} and maximum \code{b} \\
+\hline \code{random:exponential(l)} & Exponential distribution with rate \code{l} \\
+\hline \code{random:gamma(a,b)} & Gamma distribution with shape \code{a} and scale \code{b} \\
+\hline \code{random:weibull(l,k)} & Weibull distribution with scale \code{l} and shape \code{k} \\
+\hline \code{random:normal(m,s)} & Normal (Gaussian) distribution with mean \code{m} and standard deviation \code{s} \\
+\hline \code{random:chisq(n)} & Chi-square distribution \code{n} degrees of freedom \\
+\hline \code{random:cauchy(m,s)} & Cauchy distribution with location \code{m} and scale \code{s} \\
+\hline \code{random:f(m,n)} & Fisher's F distribution with \code{m} degrees of freedom in the numerator and \code{n} degrees of freedom in the denominator \\
+\hline \code{random:t(n)} & Student's T distribution with \code{n} degrees of freedom \\
+
+\end{tabular}
+\end{center}
+
+Documentation for the Lua 5.1 language can be found at\\http://www.lua.org/manual/5.1/.
+
+\subsection{SBML}
+\label{sec:sbml}
+
+SGNS2 can read models in SBML level 3 version 1 format with the following restrictions: no Rules, Events, compartment volumes or Initial Assignments may be used. To import a SBML model into SGNS2, the SBML for SGNS2 package available on the simulator web page (http://www.cs.tut.fi/$\sim$lloydpri/sgns2/) is required to be present with the SGNS2 executable.
+
+The SBML importer is invoked by using the \code{import} identifier with the \code{sbml} format. Alternatively, the SBML importer will also be invoked if \code{import} is used without an explicit format and the filename has extension of \code{sbml} or \code{xml}. For example, the following will both invoke the SBML importer:
+
+\begin{quote}
+\code{\progexe\ sbml:example.txt}
+\code{\progexe\ example.xml}
+\end{quote}
+
+\subsection{Command Line Parameters}
+\label{sec:cmdline}
+
+Command line parameters are read and processed immediately \emph{in the order that they are given}. The available command line options are summarized in the following table:
+
+\begin{center}
+\begin{tabular}{l|p{5.5cm}|l}
+Form & Equivalent to & Example\\
+\hline
+\codeparam{filename}
+	& \raggedright\code{output\_file} \codeparam{filenameroot}\code{.?;}\linebreak\code{import} \codeparam{filename}\code{;}
+	& \code{test.g} \\
+\code{--}\codeparam{identifier} \codeparam{data}
+	& \codeparam{identifier} \codeparam{data}\code{;}
+	& \code{--reaction "A + B --[5]--> C"} \\
+\code{--}
+	& Stop processing the command line and read from stdin as though it were \code{--include}d
+	& \code{cpp test.g | \progexe --} \\
+\code{--version}
+	& Displays version information
+	& \\
+\code{--help} or \code{-?}
+	& Displays basic usage information
+	& \\
+\code{-t}[\codeparam{start}\code{-}]\codeparam{end}[\code{:}\codeparam{interval}]
+	& \raggedright\code{time} \codeparam{start} or \code{0;}\linebreak\code{stop\_time} \codeparam{end}\code{;}\linebreak\code{readout\_interval} \codeparam{interval} or \code{1;}
+	& \code{-t3600:1}\\
+\code{-b} \codeparam{n}
+	& \code{batch\_count} \codeparam{n}\code{;}
+	& \code{-b 100} \\
+\code{-T} \codeparam{threads}
+	& \code{batch\_threads} \codeparam{threads}\code{;}
+	& \code{-T1} \\
+\code{-f} \codeparam{format}
+	& \code{output\_format} \codeparam{format}\code{;}
+	& \code{-f bin32} \\
+\code{-i} \codeparam{filename}
+	& \code{import} \codeparam{filename}\code{;}
+	& \code{-i test.g} \\
+\code{-o} \codeparam{filename}
+	& \code{output\_file} \codeparam{filename}\code{;}
+	& \code{-o test.csv} \\
+\code{-p}
+	& \code{progress show;}
+	& \\
+\code{-P}
+	& \code{performance show;}
+	& \\
+\begin{minipage}[t]{3cm}\raggedright\code{+}\codeparam{param}\code{=}\codeparam{value} or \linebreak \code{+}\codeparam{param} \codeparam{value} \end{minipage}
+	& \code{parameter} \codeparam{param} \code{=} \codeparam{value}\code{;}
+	& \code{+k\_t=20}\\
+\code{!}\codeparam{code}
+	& \code{lua} \codeparam{code}\code{;}
+	& \code{!print('N='..random.raw())} \\
+\end{tabular}
+\end{center}
+
+Note that since the command line is processed \emph{in order}, parameters set later can override earlier values of those parameters. As such, \code{parameter}s that are used in a reaction file must be set \emph{before} the inclusion of the reaction file, and simulation parameters that are set in the reaction file such as \code{time} or \code{output\_file} must be set \emph{after} its inclusion for it to have any effect.
+
+Any argument that does not begin with a \code{-}, \code{/}, \code{+} or \code{!} will be treated as a simulation file.
+
+\subsection{Output}
+\label{sec:output}
+
+The filename to output is given with the \code{output\_file} identifier. Compartments and batch runs modify the filename by placing extra data before the last \code{.} in the filename, or at the end if none exist. The interval between samples of the simulation is given by the \code{sample\_interval} identifier. If this interval is set to 0, the simulation runs in ``sample-every-step'' mode, where one sample is taken for every iteration of the SSA.
+
+Several different output formats are provided for use in different environments. These formats are specified by the \code{output\_format} identifier or the \code{-f} command line switch. Available formats are:
+
+\begin{description}
+\item[\code{csv}] (default) Outputs a comma-separated text format.
+\item[\code{tsv}] Outputs a tab-separated text format.
+\item[\code{bin32}] Outputs a binary format with 4-byte records.
+\item[\code{bin64}] Outputs a binary format with 8-byte records.
+\end{description}
+
+For text formats, each sample is recorded as a row in the output table with a header row describing the contents of the columns. Each compartment is output to a separate file.
+
+Binary formats are output without headers, with each record taking a fixed number of bytes. Noninteger quantities such as time are output in IEEE 754 format (singles or doubles) while integer quantities are output as integers of the given width. Records are output in the same order as in the text format, and all quantities are output in the endianness of the host machine.
+
+If the output file given to the simulator ends with \code{.?}, {\programname} will replace this with an extension appropriate to the chosen output format (\code{.csv}, \code{.tsv} or \code{.bin}).
+
+Some special output columns in the output files can be enabled or disabled with the \code{output} identifier as in:
+
+\begin{quote}
+\code{output show time;}\\
+\code{output hide step\_count;}
+\end{quote}
+
+The following output columns can be toggled with the \code{output} identifier:
+
+\begin{center}
+\begin{tabular}{l|l|p{8cm}}
+Name & Default & Description\\
+\hline
+\code{time} & shown & Simulation time \\
+\code{step\_count} & hidden & Total number of simulation steps performed \\
+\code{waitlist\_size} & hidden & Current size of the wait list in the compartment \\
+\end{tabular}
+\end{center}
+
+\subsection{Errors and Warnings}
+
+Upon an error in the input, {\programname} will output error information to stderr, and will attempt to show where the error occurred. Warnings indicate potential errors in the input and may be disabled with the \code{warn} identifier with data \code{off}.
+
+\subsection{Runtime Complexity}
+
+The simulation algorithm is based on the Next Reaction Method. Its best-case runtime is $\Omega(RC\cdot \log RC)$, where R is the mean number of reactions per compartment type and C is the maximum number of compartments produced during the simulation. Its worst-case runtime is $O(R^2C \log C)$. The worst case occurs when the most commonly used reactant is found in $\Theta(R)$ reactions.
+
+\bibliography{sgns2-bib}
+
+\end{document}
+
